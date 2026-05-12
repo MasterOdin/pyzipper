@@ -2627,12 +2627,24 @@ class ZipInfoTests(unittest.TestCase):
 class CommandLineTest(unittest.TestCase):
 
     def zipfilecmd(self, *args, **kwargs):
-        rc, out, err = script_helper.assert_python_ok('-m', 'pyzipper.zipfile', *args,
-                                                      **kwargs)
+        rc, out, err = script_helper.assert_python_ok(
+            '-m',
+            'pyzipper.zipfile',
+            *args,
+            __cwd=os.getcwd(),
+            __cleanenv=True,
+            **kwargs,
+        )
         return out.replace(os.linesep.encode(), b'\n')
 
     def zipfilecmd_failure(self, *args):
-        return script_helper.assert_python_failure('-m', 'pyzipper.zipfile', *args)
+        return script_helper.assert_python_failure(
+            '-m',
+            'pyzipper.zipfile',
+            *args,
+            __cleanenv=True,
+            __cwd=os.getcwd(),
+        )
 
     def test_bad_use(self):
         rc, out, err = self.zipfilecmd_failure()

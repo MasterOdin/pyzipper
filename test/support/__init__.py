@@ -16,7 +16,6 @@ import importlib
 import importlib.util
 import io
 import logging.handlers
-import nntplib
 import os
 import platform
 import re
