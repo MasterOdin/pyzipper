@@ -1,5 +1,4 @@
-This project is adapted from Python's zipfile module and tests. The intention
-is to get as much of this project into mainline Python as possible.
+MIT License
 
 Copyright (c) 2017 Daniel Hillier
 
