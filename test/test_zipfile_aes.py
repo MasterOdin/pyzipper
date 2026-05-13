@@ -369,21 +369,27 @@ class WZAESTests(unittest.TestCase):
         fname = TESTFN
         pwd = b'passwd'
         content_fname = 'test.txt'
-        for i in [1, 10, 19, 20, 200, 1000]:
-            with self.subTest(f"content length: {i}"):
-                content = b"a" * i
-                with zipfile_aes.AESZipFile(fname, "w", compression=zipfile.ZIP_BZIP2) as zipfp:
-                    zipfp.setpassword(pwd)
-                    zipfp.setencryption(zipfile_aes.WZ_AES)
-                    zipfp.writestr(content_fname, content)
+        for compress_method in [
+            zipfile.ZIP_STORED,
+            zipfile.ZIP_DEFLATED,
+            zipfile.ZIP_BZIP2,
+            zipfile.ZIP_LZMA,
+        ]:
+            for i in [1, 10, 19, 20, 200, 1000]:
+                with self.subTest(f"{compress_method}: content length: {i}"):
+                    content = b"a" * i
+                    with zipfile_aes.AESZipFile(fname, "w") as zipfp:
+                        zipfp.setpassword(pwd)
+                        zipfp.setencryption(zipfile_aes.WZ_AES)
+                        zipfp.writestr(content_fname, content)
 
-                with zipfile_aes.AESZipFile(fname) as zipfp:
-                    zinfo = zipfp.NameToInfo[content_fname]
-                    zipfp.setpassword(pwd)
-                    self.assertEqual(zinfo.wz_aes_version, zipfile_aes.WZ_AES_V2)
-                    read_content = zipfp.read(content_fname)
-                    self.assertEqual(content, read_content)
-                    self.assertEqual(zinfo.CRC, 0)
+                    with zipfile_aes.AESZipFile(fname) as zipfp:
+                        zinfo = zipfp.NameToInfo[content_fname]
+                        zipfp.setpassword(pwd)
+                        self.assertEqual(zinfo.wz_aes_version, zipfile_aes.WZ_AES_V2)
+                        read_content = zipfp.read(content_fname)
+                        self.assertEqual(content, read_content)
+                        self.assertEqual(zinfo.CRC, 0)
 
     def test_conditional_crc_small_files(self):
         """Entries of size less than min_bytes_to_include_crc bytes have no CRC"""
