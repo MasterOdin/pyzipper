@@ -39,7 +39,8 @@ CRC32 Values
 ------------
 
 From pyzipper v0.4.0 onwards, no CRC32 values are included in the file headers
-by default.
+by default. Prior to v0.4.0 (2026-05-13), a bug resulted in CRC32 values
+erroneously being included for small files (<20 uncompressed bytes).
 
 From the `WZ AES FAQ`_ about CRC values:
 
