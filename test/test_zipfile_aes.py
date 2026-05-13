@@ -7,7 +7,7 @@ from random import randint, random
 
 from test.support import unlink
 from .test_zipfile import (
-    TESTFN, TESTFN2, get_files, requires_bz2, requires_zlib, requires_lzma,
+    TESTFN, TESTFN2, Unseekable, get_files, requires_bz2, requires_zlib, requires_lzma,
 )
 
 from pyzipper import zipfile
@@ -246,6 +246,95 @@ class WZAESTests(unittest.TestCase):
         with zipfile_aes.AESZipFile(fname) as zipfp:
             self.assertRaises(RuntimeError, zipfp.read, 'test.txt')
 
+    def test_crc_options(self):
+        fname = TESTFN
+        with zipfile_aes.AESZipFile(fname, "w") as zipfp:
+            zipfp.setpassword(b"passwd")
+            zipfp.setencryption(
+                zipfile_aes.WZ_AES,
+                conditionally_include_crc=1,
+            )
+            with self.assertRaises(
+                ValueError,
+                msg="`conditionally_include_crc` must be True or False or None"
+            ):
+                zipfp.writestr("test_fname", b"test")
+
+            zipfp.setencryption(
+                zipfile_aes.WZ_AES,
+                conditionally_include_crc=True,
+            )
+            with self.assertRaises(
+                ValueError,
+                msg="`min_bytes_to_include_crc` must be set if `conditionally_include_crc` is True"
+            ):
+                zipfp.writestr("test_fname", b"test")
+
+            zipfp.setencryption(
+                zipfile_aes.WZ_AES,
+                conditionally_include_crc=True,
+                min_bytes_to_include_crc=10,
+            )
+            with self.assertRaises(
+                ValueError,
+                msg="`min_bytes_to_include_crc` must be 20 or greater"
+            ):
+                zipfp.writestr("test_fname", b"test")
+
+            zipfp.setencryption(
+                zipfile_aes.WZ_AES,
+                min_bytes_to_include_crc=10,
+            )
+            with self.assertRaises(
+                ValueError,
+                msg="`conditionally_include_crc` must be True if `min_bytes_to_include_crc` is set"
+            ):
+                zipfp.writestr("test_fname", b"test")
+
+            zipfp.setencryption(
+                zipfile_aes.WZ_AES,
+                conditionally_include_crc=False,
+                min_bytes_to_include_crc=10,
+            )
+            with self.assertRaises(
+                ValueError,
+                msg="`conditionally_include_crc` must be True if `min_bytes_to_include_crc` is set"
+            ):
+                zipfp.writestr("test_fname", b"test")
+
+            zipfp.setencryption(
+                zipfile_aes.WZ_AES,
+                force_wz_aes_version=3,
+            )
+            with self.assertRaises(
+                ValueError,
+                msg="`force_wz_aes_version` must be WZ_AES_V1 (1) or WZ_AES_V2 (2)"
+            ):
+                zipfp.writestr("test_fname", b"test")
+
+            zipfp.setencryption(
+                zipfile_aes.WZ_AES,
+                force_wz_aes_version=zipfile_aes.WZ_AES_V1,
+                conditionally_include_crc=True,
+                min_bytes_to_include_crc=20,
+            )
+            with self.assertRaises(
+                ValueError,
+                msg="`force_wz_aes_version` and `conditionally_include_crc` must not be specified at the same time."
+            ):
+                zipfp.writestr("test_fname", b"test")
+
+            zipfp.setencryption(
+                zipfile_aes.WZ_AES,
+                force_wz_aes_version=zipfile_aes.WZ_AES_V1,
+                min_bytes_to_include_crc=20,
+            )
+            with self.assertRaises(
+                ValueError,
+                msg="`min_bytes_to_include_crc` must be set if `conditionally_include_crc` is True"
+            ):
+                zipfp.writestr("test_fname", b"test")
+
     def do_test_force_wz_aes_version(self, force_wz_aes_version):
         fname = TESTFN
         pwd = b'passwd'
@@ -265,12 +354,230 @@ class WZAESTests(unittest.TestCase):
             self.assertEqual(zinfo.wz_aes_version, force_wz_aes_version)
             read_content = zipfp.read(content_fname)
             self.assertEqual(content, read_content)
+            if force_wz_aes_version == zipfile_aes.WZ_AES_V2:
+                self.assertEqual(zinfo.CRC, 0)
+            else:
+                self.assertEqual(zinfo.CRC, zipfile.crc32(content))
 
     def test_force_wz_aes_version(self):
         """Supplying force_wz_aes_version overrides the calculated version."""
         # One of these will fail if not overridden based on identical content.
         self.do_test_force_wz_aes_version(force_wz_aes_version=1)
         self.do_test_force_wz_aes_version(force_wz_aes_version=2)
+
+    def test_no_crc_by_default(self):
+        fname = TESTFN
+        pwd = b'passwd'
+        content_fname = 'test.txt'
+        for i in [1, 10, 19, 20, 200, 1000]:
+            with self.subTest(f"content length: {i}"):
+                content = b"a" * i
+                with zipfile_aes.AESZipFile(fname, "w", compression=zipfile.ZIP_BZIP2) as zipfp:
+                    zipfp.setpassword(pwd)
+                    zipfp.setencryption(zipfile_aes.WZ_AES)
+                    zipfp.writestr(content_fname, content)
+
+                with zipfile_aes.AESZipFile(fname) as zipfp:
+                    zinfo = zipfp.NameToInfo[content_fname]
+                    zipfp.setpassword(pwd)
+                    self.assertEqual(zinfo.wz_aes_version, zipfile_aes.WZ_AES_V2)
+                    read_content = zipfp.read(content_fname)
+                    self.assertEqual(content, read_content)
+                    self.assertEqual(zinfo.CRC, 0)
+
+    def test_conditional_crc_small_files(self):
+        """Entries of size less than min_bytes_to_include_crc bytes have no CRC"""
+        fname = TESTFN
+        pwd = b'passwd'
+        content_fname = 'test.txt'
+        for min_bytes_to_include_crc in [20, 30]:
+            for i in range(1, min_bytes_to_include_crc):
+                with self.subTest(f"min_bytes_to_include_crc: {min_bytes_to_include_crc}; content length: {i}"):
+                    content = b"a" * i
+                    with zipfile_aes.AESZipFile(fname, "w") as zipfp:
+                        zipfp.setpassword(pwd)
+                        zipfp.setencryption(
+                            zipfile_aes.WZ_AES,
+                            conditionally_include_crc=True,
+                            min_bytes_to_include_crc=min_bytes_to_include_crc,
+                        )
+                        zipfp.writestr(content_fname, content)
+
+                    with zipfile_aes.AESZipFile(fname) as zipfp:
+                        zinfo = zipfp.NameToInfo[content_fname]
+                        zipfp.setpassword(pwd)
+                        self.assertEqual(zinfo.wz_aes_version, zipfile_aes.WZ_AES_V2)
+                        read_content = zipfp.read(content_fname)
+                        self.assertEqual(content, read_content)
+                        self.assertEqual(zinfo.CRC, 0)
+
+    def test_conditional_crc_larger_files(self):
+        """Entries of size min_bytes_to_include_crc bytes or more include CRC"""
+        fname = TESTFN
+        pwd = b'passwd'
+        content_fname = 'test.txt'
+        for i in [20, 200, 1000]:
+            with self.subTest(f"content length: {i}"):
+                content = b"a" * i
+                with zipfile_aes.AESZipFile(fname, "w") as zipfp:
+                    zipfp.setpassword(pwd)
+                    zipfp.setencryption(
+                        zipfile_aes.WZ_AES,
+                        conditionally_include_crc=True,
+                        min_bytes_to_include_crc=20,
+                    )
+                    zipfp.writestr(content_fname, content)
+
+                with zipfile_aes.AESZipFile(fname) as zipfp:
+                    zinfo = zipfp.NameToInfo[content_fname]
+                    zipfp.setpassword(pwd)
+                    self.assertEqual(zinfo.wz_aes_version, zipfile_aes.WZ_AES_V1)
+                    read_content = zipfp.read(content_fname)
+                    self.assertEqual(content, read_content)
+                    self.assertEqual(zinfo.CRC, zipfile.crc32(content))
+
+    def test_bzip2_conditional_crc(self):
+        """bzip2 streams have an internal integrity check and don't have CRC32"""
+        fname = TESTFN
+        pwd = b'passwd'
+        content_fname = 'test.txt'
+        for i in [1, 10, 19, 20, 200, 1000]:
+            with self.subTest(f"content length: {i}"):
+                content = b"a" * i
+                with zipfile_aes.AESZipFile(fname, "w", compression=zipfile.ZIP_BZIP2) as zipfp:
+                    zipfp.setpassword(pwd)
+                    zipfp.setencryption(
+                        zipfile_aes.WZ_AES,
+                        conditionally_include_crc=True,
+                        min_bytes_to_include_crc=20,
+                    )
+                    zipfp.writestr(content_fname, content)
+
+                with zipfile_aes.AESZipFile(fname) as zipfp:
+                    zinfo = zipfp.NameToInfo[content_fname]
+                    zipfp.setpassword(pwd)
+                    self.assertEqual(zinfo.wz_aes_version, zipfile_aes.WZ_AES_V2)
+                    read_content = zipfp.read(content_fname)
+                    self.assertEqual(content, read_content)
+                    self.assertEqual(zinfo.CRC, 0)
+
+    def read_datadescripter(self, fid, zinfo, is_zip64=False):
+        if not zinfo.use_datadescripter:
+            raise ValueError("datadescriptor not set")
+
+        fid.seek(zinfo.header_offset)
+        fheader_bytes = fid.read(zipfile.sizeFileHeader)
+        if len(fheader_bytes) != zipfile.sizeFileHeader:
+            raise zipfile.BadZipFile("Truncated file header")
+        fheader = struct.unpack(zipfile.structFileHeader, fheader_bytes)
+        if fheader[zipfile._FH_SIGNATURE] != zipfile.stringFileHeader:
+            raise zipfile.BadZipFile("Bad magic number for file header")
+
+        fname = fid.read(fheader[zipfile._FH_FILENAME_LENGTH])
+        if fheader[zipfile._FH_EXTRA_FIELD_LENGTH]:
+            fid.read(fheader[zipfile._FH_EXTRA_FIELD_LENGTH])
+        fid.seek(zinfo.compress_size, os.SEEK_CUR)
+        if is_zip64:
+            size = 24
+            fmt = '<LLQQ'
+        else:
+            size = 16
+            fmt = '<LLLL'
+        dd_sig, crc, compress_size, file_size = struct.unpack(fmt, fid.read(size))
+        self.assertEqual(dd_sig, zipfile._DD_SIGNATURE)
+        return crc, compress_size, file_size
+
+    def test_datadescriptor_no_crc(self):
+        fid = io.BytesIO()
+        unseek_fid = Unseekable(fid)
+        pwd = b'passwd'
+        content_fname = 'test.txt'
+        for i in [1, 10, 19, 20, 200, 1000]:
+            with self.subTest(f"content length: {i}"):
+                content = b"a" * i
+                with zipfile_aes.AESZipFile(unseek_fid, "w") as zipfp:
+                    zipfp.setpassword(pwd)
+                    zipfp.setencryption(
+                        zipfile_aes.WZ_AES,
+                    )
+                    zipfp.writestr(content_fname, content)
+
+                with zipfile_aes.AESZipFile(fid) as zipfp:
+                    zinfo = zipfp.NameToInfo[content_fname]
+                    zipfp.setpassword(pwd)
+                    self.assertEqual(zinfo.wz_aes_version, zipfile_aes.WZ_AES_V2)
+                    self.assertEqual(zinfo.CRC, 0)
+                    read_content = zipfp.read(content_fname)
+                    self.assertEqual(content, read_content)
+
+                dd_crc, dd_compress_size, dd_filesize = self.read_datadescripter(fid, zinfo)
+                self.assertEqual(dd_crc, 0)
+
+    def test_datadescriptor_unknown_size(self):
+        """Files of initially unknown sizes written to unseekable archives use ae-2"""
+        fid = io.BytesIO()
+        unseek_fid = Unseekable(fid)
+        pwd = b'passwd'
+        content_fname = 'test.txt'
+        # content length of 40 should use ae-1 when using conditionally written
+        # CRC but because we initially don't know the size, we default to ae-2
+        # and can't change that later due to the file being unseekable.
+        content = b"a" * 40
+        with zipfile_aes.AESZipFile(unseek_fid, "w") as zipfp:
+            zipfp.setpassword(pwd)
+            zipfp.setencryption(
+                zipfile_aes.WZ_AES,
+                conditionally_include_crc=True,
+                min_bytes_to_include_crc=20,
+            )
+            with zipfp.open(content_fname, "w") as zfout:
+                zfout.write(content)
+
+        with zipfile_aes.AESZipFile(fid) as zipfp:
+            zinfo = zipfp.NameToInfo[content_fname]
+            zipfp.setpassword(pwd)
+            self.assertEqual(zinfo.wz_aes_version, zipfile_aes.WZ_AES_V2)
+            self.assertEqual(zinfo.CRC, 0)
+            read_content = zipfp.read(content_fname)
+            self.assertEqual(content, read_content)
+
+        dd_crc, dd_compress_size, dd_filesize = self.read_datadescripter(fid, zinfo)
+        self.assertEqual(dd_crc, 0)
+
+    def test_datadescriptor_conditional_crc(self):
+        fid = io.BytesIO()
+        unseek_fid = Unseekable(fid)
+        pwd = b'passwd'
+        content_fname = 'test.txt'
+        for i in [1, 10, 19, 20, 200, 1000]:
+            with self.subTest(f"content length: {i}"):
+                content = b"a" * i
+                with zipfile_aes.AESZipFile(unseek_fid, "w") as zipfp:
+                    zipfp.setpassword(pwd)
+                    zipfp.setencryption(
+                        zipfile_aes.WZ_AES,
+                        conditionally_include_crc=True,
+                        min_bytes_to_include_crc=20,
+                    )
+                    zipfp.writestr(content_fname, content)
+
+                with zipfile_aes.AESZipFile(fid) as zipfp:
+                    zinfo = zipfp.NameToInfo[content_fname]
+                    zipfp.setpassword(pwd)
+                    if i < 20:
+                        self.assertEqual(zinfo.wz_aes_version, zipfile_aes.WZ_AES_V2)
+                        self.assertEqual(zinfo.CRC, 0)
+                    else:
+                        self.assertEqual(zinfo.wz_aes_version, zipfile_aes.WZ_AES_V1)
+                        self.assertEqual(zinfo.CRC, zipfile.crc32(content))
+                    read_content = zipfp.read(content_fname)
+                    self.assertEqual(content, read_content)
+
+                dd_crc, dd_compress_size, dd_filesize = self.read_datadescripter(fid, zinfo)
+                if i < 20:
+                    self.assertEqual(dd_crc, 0)
+                else:
+                    self.assertEqual(dd_crc, zipfile.crc32(content))
 
     def do_test_aes_strength(self, nbits):
         """Providing an `nbits` encryption kwarg changes the encryption strength.
