@@ -2,6 +2,17 @@
 History
 =======
 
+0.4.0 (2026-05-13)
+------------------
+* Update package to use pyproject.toml
+* Fix bug where CRC32 values were not removed for small files (CVE-2026-44722).
+  pyzipper no longer writes any CRC32 values by default, regardless of file
+  size. The CRC32 value could be used to brute-force candidate plaintexts by
+  computing CRC32(candidate) and comparing against the stored value. In
+  practice, this attack is feasible today only against small or low-entropy
+  files, as CRC32 exhaustion across a large plaintext space is computationally
+  prohibitive on current hardware.
+
 0.3.6 (2022-07-31)
 ------------------
 * Exclude test, not tests, from setup.py packaging
