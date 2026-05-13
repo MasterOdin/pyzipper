@@ -1,12 +1,3 @@
-.. image:: https://img.shields.io/pypi/v/pyzipper.svg
-        :target: https://pypi.org/project/pyzipper/
-        :alt: Current Version on PyPi
-
-.. image:: https://img.shields.io/pypi/pyversions/pyzipper.svg
-        :target: https://pypi.org/project/pyzipper/
-        :alt: Supported Python Versions
-
-
 pyzipper
 ========
 
