@@ -41,7 +41,8 @@ except ImportError:
 
 __all__ = ["BadZipFile", "BadZipfile", "error",
            "ZIP_STORED", "ZIP_DEFLATED", "ZIP_BZIP2", "ZIP_LZMA",
-           "is_zipfile", "ZipInfo", "ZipFile", "PyZipFile", "LargeZipFile"]
+           "ZIP_ZSTANDARD", "is_zipfile", "ZipInfo", "ZipFile",
+           "PyZipFile", "LargeZipFile"]
 
 
 class BadZipFile(Exception):
@@ -1088,11 +1089,11 @@ def _get_compressor(compress_type, compresslevel=None):
         if compresslevel is not None:
             return bz2.BZ2Compressor(compresslevel)
         return bz2.BZ2Compressor()
-    # compresslevel is ignored for ZIP_LZMA and ZIP_ZSTANDARD
+    # compresslevel is ignored for ZIP_LZMA
     elif compress_type == ZIP_LZMA:
         return LZMACompressor()
     elif compress_type == ZIP_ZSTANDARD:
-        return zstd.ZstdCompressor()
+        return zstd.ZstdCompressor(level=compresslevel)
     else:
         return None
 
